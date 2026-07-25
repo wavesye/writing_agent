@@ -4,7 +4,7 @@ from llm import run_agent
 
 
 def main() -> None:
-    print("VIN Agent MVP（输入 exit 退出）")
+    print("VIN Agent v2 · FastAPI Tool（输入 exit 退出）")
     while True:
         try:
             user_input = input("\n你: ").strip()
