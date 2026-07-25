@@ -23,6 +23,23 @@ def _post(path: str, payload: dict) -> dict:
         ) from error
 
 
+def _get(path: str) -> dict:
+    """统一读取车辆 FastAPI 服务。"""
+    try:
+        response = httpx.get(f"{VIN_API_URL}{path}", timeout=5.0)
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPError as error:
+        raise RuntimeError(
+            f"VIN API 调用失败，请确认 FastAPI 已启动：{error}"
+        ) from error
+
+
+def list_vehicles() -> dict:
+    """列出车队中的 VIN；需要搜索车辆时必须先调用。"""
+    return _get("/vehicles")
+
+
 def analyze_vin(vin: str) -> dict:
     """分析 VIN 的状态、温度和异常标记。"""
     return _post("/analyze-vin", {"vin": vin})
@@ -42,6 +59,7 @@ def get_maintenance_advice(temperature: float, has_anomaly: bool) -> dict:
 
 
 TOOL_HANDLERS = {
+    "list_vehicles": list_vehicles,
     "analyze_vin": analyze_vin,
     "get_vehicle_info": get_vehicle_info,
     "get_maintenance_advice": get_maintenance_advice,

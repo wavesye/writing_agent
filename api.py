@@ -5,6 +5,33 @@ from pydantic import BaseModel, Field
 
 app = FastAPI(title="Vehicle Tools API", version="3.0.0")
 
+VEHICLES = {
+    "VIN123": {
+        "brand": "Tesla",
+        "model": "Model 3",
+        "year": 2024,
+        "status": "A",
+        "temperature": 42.1,
+        "has_anomaly": False,
+    },
+    "VIN456": {
+        "brand": "BYD",
+        "model": "Han",
+        "year": 2023,
+        "status": "B",
+        "temperature": 66.0,
+        "has_anomaly": False,
+    },
+    "VIN789": {
+        "brand": "NIO",
+        "model": "ET5",
+        "year": 2022,
+        "status": "C",
+        "temperature": 91.5,
+        "has_anomaly": True,
+    },
+}
+
 
 class VinRequest(BaseModel):
     vin: str = Field(min_length=3, max_length=50)
@@ -34,30 +61,53 @@ class MaintenanceAdvice(BaseModel):
     advice: str
 
 
+class VehicleList(BaseModel):
+    vins: list[str]
+
+
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "v3", "tools": 3}
+    return {"status": "ok", "version": "v4", "tools": 4}
+
+
+@app.get("/vehicles", response_model=VehicleList)
+def list_vehicles() -> VehicleList:
+    """列出车队中真实存在的 VIN，供后续工具使用。"""
+    return VehicleList(vins=list(VEHICLES))
 
 
 @app.post("/analyze-vin", response_model=VinResult)
 def analyze_vin(request: VinRequest) -> VinResult:
     """返回模拟的车辆分析结果，后续可替换为真实业务逻辑。"""
+    vin = request.vin.upper()
+    vehicle = VEHICLES.get(vin)
+    if vehicle is None:
+        return VinResult(
+            vin=vin,
+            status="unknown",
+            temperature=0,
+            has_anomaly=False,
+        )
     return VinResult(
-        vin=request.vin.upper(),
-        status="A",
-        temperature=42.1,
-        has_anomaly=False,
+        vin=vin,
+        status=vehicle["status"],
+        temperature=vehicle["temperature"],
+        has_anomaly=vehicle["has_anomaly"],
     )
 
 
 @app.post("/vehicle-info", response_model=VehicleInfo)
 def get_vehicle_info(request: VinRequest) -> VehicleInfo:
     """根据 VIN 返回模拟的车辆基本信息。"""
+    vin = request.vin.upper()
+    vehicle = VEHICLES.get(vin)
+    if vehicle is None:
+        return VehicleInfo(vin=vin, brand="unknown", model="unknown", year=0)
     return VehicleInfo(
-        vin=request.vin.upper(),
-        brand="Tesla",
-        model="Model 3",
-        year=2024,
+        vin=vin,
+        brand=vehicle["brand"],
+        model=vehicle["model"],
+        year=vehicle["year"],
     )
 
 

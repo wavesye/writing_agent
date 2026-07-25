@@ -1,10 +1,12 @@
-"""最小 AI Agent 命令行入口。"""
+"""AI Agent 命令行入口。"""
+
+import asyncio
 
 from llm import run_agent
 
 
 def main() -> None:
-    print("VIN Agent v3 · 多 Tool 自动选择（输入 exit 退出）")
+    print("VIN Agent v4 · MCP Tools（输入 exit 退出）")
     while True:
         try:
             user_input = input("\n你: ").strip()
@@ -19,7 +21,7 @@ def main() -> None:
             continue
 
         try:
-            print(f"\nAgent: {run_agent(user_input)}")
+            print(f"\nAgent: {asyncio.run(run_agent(user_input))}")
         except Exception as error:
             print(f"\n调用失败: {error}")
 

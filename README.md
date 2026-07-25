@@ -1,9 +1,9 @@
-# VIN Agent v3
+# VIN Agent v4
 
 最小闭环：
 
 ```text
-用户 -> LLM -> 自动选择 Tool(s) -> FastAPI -> LLM -> 用户
+用户 -> DeepSeek -> MCP Client -> MCP Server -> FastAPI -> 用户
 ```
 
 ## 运行
@@ -50,7 +50,7 @@ python main.py
 分析 VIN123
 ```
 
-可以尝试不同意图：
+Agent 会在每次请求开始时通过 MCP 动态发现工具。可以尝试：
 
 ```text
 查询 VIN123 的车型
@@ -71,12 +71,14 @@ export DEEPSEEK_MODEL="deepseek-v4-pro"
 ## 文件职责
 
 - `main.py`：命令行交互
-- `llm.py`：调用模型、识别工具请求、回传工具结果
-- `tools.py`：注册并通过 HTTP 调用三个 Agent 工具
-- `api.py`：提供三个车辆业务接口
+- `llm.py`：MCP Client、DeepSeek 调度和多轮工具调用
+- `mcp_server.py`：MCP Server，声明四个标准 MCP Tools
+- `tools.py`：MCP Tool 到 FastAPI 的 HTTP 适配层
+- `api.py`：车辆业务 API 与模拟数据
 
 当前工具：
 
+- `list_vehicles`：列出车队中真实存在的 VIN
 - `analyze_vin`：状态、温度与异常分析
 - `get_vehicle_info`：品牌、车型与年份查询
 - `get_maintenance_advice`：根据分析结果给出维修建议
@@ -88,4 +90,19 @@ Agent 和 Tool 协议无需改变。
 
 ```bash
 export VIN_API_URL="http://你的服务地址"
+```
+
+## MCP 与 API 的区别
+
+FastAPI 是业务接口，可以在浏览器访问
+[`http://127.0.0.1:8000/docs`](http://127.0.0.1:8000/docs)。
+
+MCP 是 Agent 与工具之间的标准协议。本项目采用 `stdio` 传输：
+Agent 会自动启动 `mcp_server.py`、发现工具 Schema，并通过 MCP 调用，
+因此不需要为 MCP 单独打开端口或终端。
+
+只查看 MCP Server 暴露的工具：
+
+```bash
+python inspect_mcp.py
 ```
