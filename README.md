@@ -8,7 +8,7 @@
 
 ## 运行
 
-需要 Python 3.10+ 和 DeepSeek API Key。
+需要 Python 3.10+，可选择 DeepSeek 或公司内部模型。
 
 ```bash
 cd agent-demo
@@ -68,10 +68,63 @@ Agent 会在每次请求开始时通过 MCP 动态发现工具。可以尝试：
 export DEEPSEEK_MODEL="deepseek-v4-pro"
 ```
 
+## 切换到公司内部 LLM
+
+模型层使用统一 Provider，默认是 DeepSeek。公司接口至少需要配置：
+
+```bash
+export LLM_PROVIDER="company"
+export COMPANY_LLM_BASE_URL="http://10.8.3.75:9192"
+export COMPANY_LLM_TOKEN="登录接口返回的token"
+export COMPANY_LLM_CHAT_PATH="/实际发送消息的路径"
+python main.py
+```
+
+默认初始化接口为 `GET /chat/init`。如果不同：
+
+```bash
+export COMPANY_LLM_INIT_PATH="/你的初始化路径"
+```
+
+如果初始化响应是嵌套结构，例如：
+
+```json
+{"data": {"sessionId": "abc"}}
+```
+
+可以明确指定字段：
+
+```bash
+export COMPANY_LLM_SESSION_FIELD="data.sessionId"
+export COMPANY_LLM_SESSION_REQUEST_FIELD="session_id"
+```
+
+公司接口原生支持 `tools` 时使用默认模式：
+
+```bash
+export COMPANY_LLM_TOOL_MODE="native"
+```
+
+如果公司接口只支持普通文本，可以使用 JSON Prompt 模拟 Tool Calling：
+
+```bash
+export COMPANY_LLM_TOOL_MODE="prompt"
+```
+
+可选配置：
+
+```bash
+export COMPANY_LLM_MODEL="公司模型名"
+export COMPANY_LLM_TIMEOUT="60"
+```
+
+真实 Token 不要写入代码、README 或 Git。
+
 ## 文件职责
 
 - `main.py`：命令行交互
 - `llm.py`：建立 MCP 会话并启动 LangGraph
+- `llm_providers/`：DeepSeek 与公司 HTTP 模型适配器
 - `agent_graph.py`：状态、节点、条件边与循环上限
 - `mcp_server.py`：MCP Server，声明四个标准 MCP Tools
 - `tools.py`：MCP Tool 到 FastAPI 的 HTTP 适配层

@@ -20,32 +20,16 @@ class AgentState(TypedDict):
     final_answer: str
 
 
-def _assistant_message(message) -> dict:
-    result = {"role": "assistant", "content": message.content}
-    if message.tool_calls:
-        result["tool_calls"] = [
-            tool_call.model_dump(exclude_none=True)
-            for tool_call in message.tool_calls
-        ]
-    return result
-
-
-def build_agent_graph(client, model: str, mcp_session, tools):
+def build_agent_graph(provider, mcp_session, tools):
     """注入模型与 MCP 会话，然后编译可执行状态图。"""
 
     def model_node(state: AgentState) -> dict:
         print(f"[graph:model] 第 {state['tool_rounds'] + 1} 次决策")
-        response = client.chat.completions.create(
-            model=model,
-            messages=state["messages"],
-            tools=tools,
-            extra_body={"thinking": {"type": "disabled"}},
-        )
-        message = response.choices[0].message
+        message = provider.generate(state["messages"], tools)
         return {
-            "messages": [_assistant_message(message)],
+            "messages": [message],
             "phase": "model",
-            "final_answer": message.content or "",
+            "final_answer": message.get("content") or "",
         }
 
     async def mcp_tools_node(state: AgentState) -> dict:

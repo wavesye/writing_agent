@@ -15,25 +15,21 @@ class FakeToolCall:
         }
 
 
-class FakeCompletions:
+class FakeProvider:
+    name = "fake"
+
     def __init__(self):
         self.calls = 0
 
-    def create(self, **kwargs):
+    def generate(self, messages, tools):
         self.calls += 1
         if self.calls == 1:
-            message = SimpleNamespace(
-                content=None,
-                tool_calls=[FakeToolCall()],
-            )
-        else:
-            message = SimpleNamespace(
-                content="找到 VIN789。",
-                tool_calls=None,
-            )
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=message)]
-        )
+            return {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [FakeToolCall().model_dump()],
+            }
+        return {"role": "assistant", "content": "找到 VIN789。"}
 
 
 class FakeMcpSession:
@@ -47,12 +43,8 @@ class FakeMcpSession:
 
 class AgentGraphTest(unittest.IsolatedAsyncioTestCase):
     async def test_model_tool_model_end(self):
-        client = SimpleNamespace(
-            chat=SimpleNamespace(completions=FakeCompletions())
-        )
         graph = build_agent_graph(
-            client,
-            "fake-model",
+            FakeProvider(),
             FakeMcpSession(),
             [],
         )
