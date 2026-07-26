@@ -6,7 +6,7 @@ from llm import run_agent
 
 
 def main() -> None:
-    print("VIN Agent v4 · MCP Tools（输入 exit 退出）")
+    print("VIN Agent v5 · LangGraph + MCP（输入 exit 退出）")
     while True:
         try:
             user_input = input("\n你: ").strip()

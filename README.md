@@ -1,9 +1,9 @@
-# VIN Agent v4
+# VIN Agent v5
 
 最小闭环：
 
 ```text
-用户 -> DeepSeek -> MCP Client -> MCP Server -> FastAPI -> 用户
+用户 -> LangGraph -> DeepSeek -> MCP -> FastAPI -> LangGraph -> 用户
 ```
 
 ## 运行
@@ -71,7 +71,8 @@ export DEEPSEEK_MODEL="deepseek-v4-pro"
 ## 文件职责
 
 - `main.py`：命令行交互
-- `llm.py`：MCP Client、DeepSeek 调度和多轮工具调用
+- `llm.py`：建立 MCP 会话并启动 LangGraph
+- `agent_graph.py`：状态、节点、条件边与循环上限
 - `mcp_server.py`：MCP Server，声明四个标准 MCP Tools
 - `tools.py`：MCP Tool 到 FastAPI 的 HTTP 适配层
 - `api.py`：车辆业务 API 与模拟数据
@@ -100,6 +101,30 @@ FastAPI 是业务接口，可以在浏览器访问
 MCP 是 Agent 与工具之间的标准协议。本项目采用 `stdio` 传输：
 Agent 会自动启动 `mcp_server.py`、发现工具 Schema，并通过 MCP 调用，
 因此不需要为 MCP 单独打开端口或终端。
+
+## LangGraph 状态
+
+v5 将原来的 Python `for` 循环改成状态图：
+
+```text
+START -> model -> [需要工具?]
+                    | 是
+                    v
+                mcp_tools
+                    |
+                    +-----> model
+                    |
+                    +-----> limit -> END
+               否 -> END
+```
+
+共享状态包含：
+
+- `messages`：完整对话与工具结果
+- `tool_rounds`：已执行的工具轮数
+- `phase`：当前/最终节点阶段
+- `tool_trace`：实际调用过的 MCP Tool 名称
+- `final_answer`：最终返回给用户的内容
 
 只查看 MCP Server 暴露的工具：
 
