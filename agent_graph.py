@@ -5,7 +5,7 @@ import operator
 from typing import Annotated, Literal
 
 from langgraph.graph import END, START, StateGraph
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 MAX_TOOL_ROUNDS = 5
 
@@ -16,16 +16,32 @@ class AgentState(TypedDict):
     messages: Annotated[list[dict], operator.add]
     tool_rounds: int
     phase: str
-    tool_trace: Annotated[list[str], operator.add]
+    tool_trace: list[str]
     final_answer: str
+    current_vin: NotRequired[str | None]
 
 
-def build_agent_graph(provider, mcp_session, tools):
+def build_agent_graph(provider, mcp_session, tools, checkpointer=None):
     """注入模型与 MCP 会话，然后编译可执行状态图。"""
 
     def model_node(state: AgentState) -> dict:
         print(f"[graph:model] 第 {state['tool_rounds'] + 1} 次决策")
-        message = provider.generate(state["messages"], tools)
+        system_content = (
+            "你是车辆助手，只能使用 MCP 返回的真实车辆数据。"
+            "搜索车队时先调用 list_vehicles，禁止编造 VIN。"
+            "维修建议必须基于 analyze_vin 返回的参数。"
+            "对于解释、SQL 编写和编程问题，可以直接回答。"
+        )
+        current_vin = state.get("current_vin")
+        if current_vin:
+            system_content += f"当前会话关注的车辆是 {current_vin}。"
+        message = provider.generate(
+            [
+                {"role": "system", "content": system_content},
+                *state["messages"],
+            ],
+            tools,
+        )
         return {
             "messages": [message],
             "phase": "model",
@@ -34,10 +50,13 @@ def build_agent_graph(provider, mcp_session, tools):
 
     async def mcp_tools_node(state: AgentState) -> dict:
         tool_messages = []
-        trace = []
+        trace = list(state.get("tool_trace", []))
+        current_vin = state.get("current_vin")
         for tool_call in state["messages"][-1].get("tool_calls", []):
             name = tool_call["function"]["name"]
             arguments = json.loads(tool_call["function"]["arguments"])
+            if arguments.get("vin"):
+                current_vin = arguments["vin"].upper()
             result = await mcp_session.call_tool(name, arguments)
             if result.isError:
                 raise RuntimeError(f"MCP Tool {name} 调用失败")
@@ -67,6 +86,7 @@ def build_agent_graph(provider, mcp_session, tools):
             "tool_rounds": state["tool_rounds"] + 1,
             "phase": "mcp_tools",
             "tool_trace": trace,
+            "current_vin": current_vin,
         }
 
     def limit_node(state: AgentState) -> dict:
@@ -103,4 +123,4 @@ def build_agent_graph(provider, mcp_session, tools):
     )
     builder.add_edge("mcp_tools", "model")
     builder.add_edge("limit", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)

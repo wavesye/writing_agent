@@ -1,9 +1,9 @@
-# VIN Agent v5
+# VIN Agent v6.1
 
 最小闭环：
 
 ```text
-用户 -> LangGraph -> DeepSeek -> MCP -> FastAPI -> LangGraph -> 用户
+用户 -> SQLite Memory -> LangGraph -> LLM -> MCP -> FastAPI -> 用户
 ```
 
 ## 运行
@@ -44,6 +44,16 @@ export DEEPSEEK_API_KEY="你的 DeepSeek API Key"
 python main.py
 ```
 
+默认会话 ID 为 `vin-agent-cli`。可以显式指定：
+
+```bash
+export AGENT_THREAD_ID="waves-demo-1"
+python main.py
+```
+
+使用相同 `thread_id` 时，即使退出程序后重新启动，也会恢复上下文；
+换一个 `thread_id` 就相当于开始新会话。
+
 然后输入：
 
 ```text
@@ -57,6 +67,8 @@ Agent 会在每次请求开始时通过 MCP 动态发现工具。可以尝试：
 分析 VIN123 的状态
 分析 VIN123 并给出维修建议
 查询 VIN123 的车型、状态并给出维修建议
+分析 VIN789
+它是什么车型？
 ```
 
 模型会自动选择一个或多个工具。程序会依次打印实际执行的工具及
@@ -126,6 +138,7 @@ export COMPANY_LLM_TIMEOUT="60"
 - `llm.py`：建立 MCP 会话并启动 LangGraph
 - `llm_providers/`：DeepSeek 与公司 HTTP 模型适配器
 - `agent_graph.py`：状态、节点、条件边与循环上限
+- `data/checkpoints.sqlite`：本地会话状态（自动创建，不提交 Git）
 - `mcp_server.py`：MCP Server，声明四个标准 MCP Tools
 - `tools.py`：MCP Tool 到 FastAPI 的 HTTP 适配层
 - `api.py`：车辆业务 API 与模拟数据
@@ -178,6 +191,33 @@ START -> model -> [需要工具?]
 - `phase`：当前/最终节点阶段
 - `tool_trace`：实际调用过的 MCP Tool 名称
 - `final_answer`：最终返回给用户的内容
+- `current_vin`：当前会话正在关注的车辆
+
+## v6.1 多轮记忆
+
+项目使用 `AsyncSqliteSaver` 在 LangGraph 每个步骤后保存 checkpoint，
+并通过 `thread_id` 隔离会话：
+
+```text
+thread_id=demo-a: 分析 VIN789 -> “它”仍指 VIN789
+thread_id=demo-b: 新会话，不继承 demo-a
+```
+
+默认数据库：
+
+```text
+data/checkpoints.sqlite
+```
+
+如需修改位置：
+
+```bash
+export AGENT_CHECKPOINT_DB="/安全目录/agent-memory.sqlite"
+```
+
+Checkpoint 会包含用户消息和工具结果，不应提交到 Git。当前已启用
+`LANGGRAPH_STRICT_MSGPACK=true`。SQLite 适合本地开发，生产环境应改用
+PostgreSQL Checkpointer，并按用户/组织设计不可猜测的 `thread_id`。
 
 只查看 MCP Server 暴露的工具：
 
