@@ -22,8 +22,11 @@ async def inspect() -> None:
                 print(f"\n{tool.name}\n  {tool.description}")
                 print(json.dumps(tool.inputSchema, ensure_ascii=False, indent=2))
 
-            demo = await session.call_tool("list_vehicles", {})
-            print("\n调用示例：list_vehicles")
+            demo = await session.call_tool(
+                "search_knowledge",
+                {"query": "动力电池高温如何处理", "top_k": 2},
+            )
+            print("\n调用示例：search_knowledge")
             for item in demo.content:
                 if getattr(item, "type", None) == "text":
                     print(item.text)

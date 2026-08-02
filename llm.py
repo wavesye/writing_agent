@@ -19,6 +19,8 @@ CHECKPOINT_DB = Path(
         Path(__file__).with_name("data") / "checkpoints.sqlite",
     )
 )
+SUMMARY_TRIGGER = int(os.getenv("SUMMARY_TRIGGER_MESSAGES", "20"))
+SUMMARY_KEEP_RECENT = int(os.getenv("SUMMARY_KEEP_RECENT", "8"))
 
 
 def _deepseek_tool(mcp_tool) -> dict:
@@ -64,6 +66,8 @@ async def run_agent(user_input: str, thread_id: str | None = None) -> str:
                     session,
                     tools,
                     checkpointer=checkpointer,
+                    summary_trigger=SUMMARY_TRIGGER,
+                    recent_message_count=SUMMARY_KEEP_RECENT,
                 )
                 state = await graph.ainvoke(
                     {
@@ -84,6 +88,7 @@ async def run_agent(user_input: str, thread_id: str | None = None) -> str:
                     f"[graph] 完成 phase={state['phase']}, "
                     f"tool_rounds={state['tool_rounds']}, "
                     f"current_vin={state.get('current_vin')}, "
+                    f"summaries={state.get('summary_count', 0)}, "
                     f"trace={state['tool_trace']}"
                 )
                 return state["final_answer"]

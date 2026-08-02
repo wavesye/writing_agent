@@ -59,7 +59,55 @@ class FakeMcpSession:
         )
 
 
+class SummaryProvider:
+    name = "summary-fake"
+
+    def __init__(self):
+        self.calls = 0
+        self.seen_messages = []
+
+    def generate(self, messages, tools):
+        self.calls += 1
+        self.seen_messages.append(messages)
+        if self.calls == 1:
+            return {
+                "role": "assistant",
+                "content": "已确认：当前排查 VIN789。",
+            }
+        return {"role": "assistant", "content": "继续处理VIN789。"}
+
+
 class AgentGraphTest(unittest.IsolatedAsyncioTestCase):
+    async def test_summary_compacts_model_context(self):
+        provider = SummaryProvider()
+        graph = build_agent_graph(
+            provider,
+            FakeMcpSession(),
+            [],
+            summary_trigger=3,
+            recent_message_count=2,
+        )
+        result = await graph.ainvoke(
+            {
+                "messages": [
+                    {"role": "user", "content": f"消息{i}"}
+                    for i in range(5)
+                ],
+                "tool_rounds": 0,
+                "phase": "start",
+                "tool_trace": [],
+                "final_answer": "",
+            }
+        )
+        self.assertEqual(result["summary_cursor"], 3)
+        self.assertEqual(result["summary_count"], 1)
+        self.assertIn("当前排查 VIN789", result["conversation_summary"])
+        model_messages = provider.seen_messages[1]
+        self.assertEqual(len(model_messages), 3)
+        self.assertIn("历史会话摘要", model_messages[0]["content"])
+        self.assertEqual(model_messages[1]["content"], "消息3")
+        self.assertEqual(model_messages[2]["content"], "消息4")
+
     async def test_model_tool_model_end(self):
         graph = build_agent_graph(
             FakeProvider(),

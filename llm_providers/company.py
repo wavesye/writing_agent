@@ -111,7 +111,7 @@ class CompanyLLMProvider:
             body[self.request_session_field] = self.chat_id
         if self.model:
             body["model"] = self.model
-        if self.tool_mode == "native":
+        if self.tool_mode == "native" and tools:
             body["tools"] = tools
         return body
 

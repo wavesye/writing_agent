@@ -1,6 +1,7 @@
 """把车辆 FastAPI 能力通过 MCP 标准暴露给 Agent。"""
 
 from mcp.server.fastmcp import FastMCP
+from knowledge_base import KnowledgeBase
 
 from tools import (
     analyze_vin as analyze_vin_api,
@@ -10,6 +11,7 @@ from tools import (
 )
 
 mcp = FastMCP("Vehicle Tools")
+knowledge_base = KnowledgeBase()
 
 
 @mcp.tool()
@@ -34,6 +36,12 @@ def get_vehicle_info(vin: str) -> dict:
 def get_maintenance_advice(temperature: float, has_anomaly: bool) -> dict:
     """根据分析工具返回的温度与异常标记生成维修建议。"""
     return get_maintenance_advice_api(temperature, has_anomaly)
+
+
+@mcp.tool()
+def search_knowledge(query: str, top_k: int = 5) -> dict:
+    """检索维修手册、故障规范和流程，返回可引用的来源与章节。"""
+    return knowledge_base.search(query, top_k)
 
 
 if __name__ == "__main__":

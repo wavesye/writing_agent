@@ -19,26 +19,106 @@ class AgentState(TypedDict):
     tool_trace: list[str]
     final_answer: str
     current_vin: NotRequired[str | None]
+    conversation_summary: NotRequired[str]
+    summary_cursor: NotRequired[int]
+    summary_count: NotRequired[int]
 
 
-def build_agent_graph(provider, mcp_session, tools, checkpointer=None):
+def build_agent_graph(
+    provider,
+    mcp_session,
+    tools,
+    checkpointer=None,
+    summary_trigger: int = 20,
+    recent_message_count: int = 8,
+):
     """注入模型与 MCP 会话，然后编译可执行状态图。"""
+    if summary_trigger <= recent_message_count:
+        raise ValueError(
+            "summary_trigger 必须大于 recent_message_count，"
+            "否则无法稳定压缩上下文"
+        )
+
+    def check_context_node(state: AgentState) -> dict:
+        unsummarized = len(state["messages"]) - state.get(
+            "summary_cursor",
+            0,
+        )
+        print(
+            f"[graph:check_context] 未摘要消息={unsummarized}, "
+            f"触发阈值={summary_trigger}"
+        )
+        return {"phase": "check_context"}
+
+    def route_context(state: AgentState) -> Literal["summarize", "model"]:
+        unsummarized = len(state["messages"]) - state.get(
+            "summary_cursor",
+            0,
+        )
+        if unsummarized > summary_trigger:
+            return "summarize"
+        return "model"
+
+    def summarize_node(state: AgentState) -> dict:
+        cursor = state.get("summary_cursor", 0)
+        cutoff = max(cursor, len(state["messages"]) - recent_message_count)
+        messages_to_summarize = state["messages"][cursor:cutoff]
+        if not messages_to_summarize:
+            return {"phase": "summarize"}
+
+        previous = state.get("conversation_summary", "")
+        summary_prompt = (
+            "请更新车辆 Agent 的历史摘要。只保留对后续任务有用的信息："
+            "用户目标、当前车辆、工具确认的事实、用户偏好、待处理动作。"
+            "区分已确认事实与模型建议，不要编造，不要输出开场白。\n\n"
+            f"已有摘要：\n{previous or '无'}\n\n"
+            "新增历史消息：\n"
+            + json.dumps(messages_to_summarize, ensure_ascii=False)
+        )
+        reply = provider.generate(
+            [
+                {
+                    "role": "system",
+                    "content": "你是精确的会话摘要器。",
+                },
+                {"role": "user", "content": summary_prompt},
+            ],
+            [],
+        )
+        summary = reply.get("content") or previous
+        print(
+            f"[graph:summarize] 已摘要 {len(messages_to_summarize)} 条，"
+            f"保留最近 {len(state['messages']) - cutoff} 条"
+        )
+        return {
+            "conversation_summary": summary,
+            "summary_cursor": cutoff,
+            "summary_count": state.get("summary_count", 0) + 1,
+            "phase": "summarize",
+        }
 
     def model_node(state: AgentState) -> dict:
         print(f"[graph:model] 第 {state['tool_rounds'] + 1} 次决策")
         system_content = (
-            "你是车辆助手，只能使用 MCP 返回的真实车辆数据。"
-            "搜索车队时先调用 list_vehicles，禁止编造 VIN。"
-            "维修建议必须基于 analyze_vin 返回的参数。"
+            "你的用途就是帮助客户解决问题"
             "对于解释、SQL 编写和编程问题，可以直接回答。"
+            "涉及车辆维修流程、处置依据、故障规范时，必须调用 "
+            "search_knowledge 检索知识库，并在答案中以"
+            "[文件名#章节]标注来源。不得编造知识库内容。"
         )
         current_vin = state.get("current_vin")
         if current_vin:
             system_content += f"当前会话关注的车辆是 {current_vin}。"
+        summary = state.get("conversation_summary")
+        if summary:
+            system_content += f"\n历史会话摘要：\n{summary}"
+        recent_messages = state["messages"][
+            state.get("summary_cursor", 0):
+        ]
         message = provider.generate(
             [
                 {"role": "system", "content": system_content},
-                *state["messages"],
+                *recent_messages,
             ],
             tools,
         )
@@ -112,15 +192,23 @@ def build_agent_graph(provider, mcp_session, tools, checkpointer=None):
         return "tools"
 
     builder = StateGraph(AgentState)
+    builder.add_node("check_context", check_context_node)
+    builder.add_node("summarize", summarize_node)
     builder.add_node("model", model_node)
     builder.add_node("mcp_tools", mcp_tools_node)
     builder.add_node("limit", limit_node)
-    builder.add_edge(START, "model")
+    builder.add_edge(START, "check_context")
+    builder.add_conditional_edges(
+        "check_context",
+        route_context,
+        {"summarize": "summarize", "model": "model"},
+    )
+    builder.add_edge("summarize", "model")
     builder.add_conditional_edges(
         "model",
         route_after_model,
         {"tools": "mcp_tools", "limit": "limit", "end": END},
     )
-    builder.add_edge("mcp_tools", "model")
+    builder.add_edge("mcp_tools", "check_context")
     builder.add_edge("limit", END)
     return builder.compile(checkpointer=checkpointer)

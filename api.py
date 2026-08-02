@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-app = FastAPI(title="Vehicle Tools API", version="3.0.0")
+app = FastAPI(title="Vehicle Tools API", version="6.3.0")
 
 VEHICLES = {
     "VIN123": {
@@ -67,7 +67,7 @@ class VehicleList(BaseModel):
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "version": "v4", "tools": 4}
+    return {"status": "ok", "version": "v6.3", "api_tools": 4}
 
 
 @app.get("/vehicles", response_model=VehicleList)

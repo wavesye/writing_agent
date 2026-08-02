@@ -1,9 +1,9 @@
-# VIN Agent v6.1
+# VIN Agent v6.3
 
 最小闭环：
 
 ```text
-用户 -> SQLite Memory -> LangGraph -> LLM -> MCP -> FastAPI -> 用户
+用户 -> 记忆/摘要 -> LangGraph -> MCP车辆工具/知识库RAG -> 用户
 ```
 
 ## 运行
@@ -139,7 +139,10 @@ export COMPANY_LLM_TIMEOUT="60"
 - `llm_providers/`：DeepSeek 与公司 HTTP 模型适配器
 - `agent_graph.py`：状态、节点、条件边与循环上限
 - `data/checkpoints.sqlite`：本地会话状态（自动创建，不提交 Git）
-- `mcp_server.py`：MCP Server，声明四个标准 MCP Tools
+- `mcp_server.py`：MCP Server，声明并暴露标准 MCP Tools
+- `knowledge_base.py`：Markdown 分段、FTS5 索引与检索
+- `knowledge/`：本地维修手册和规范
+- `data/knowledge.sqlite`：自动生成的全文索引
 - `tools.py`：MCP Tool 到 FastAPI 的 HTTP 适配层
 - `api.py`：车辆业务 API 与模拟数据
 
@@ -149,6 +152,7 @@ export COMPANY_LLM_TIMEOUT="60"
 - `analyze_vin`：状态、温度与异常分析
 - `get_vehicle_info`：品牌、车型与年份查询
 - `get_maintenance_advice`：根据分析结果给出维修建议
+- `search_knowledge`：检索维修手册、故障规范和流程
 
 接口当前返回固定演示数据。后续可以只替换 API 内部的业务逻辑，
 Agent 和 Tool 协议无需改变。
@@ -218,6 +222,87 @@ export AGENT_CHECKPOINT_DB="/安全目录/agent-memory.sqlite"
 Checkpoint 会包含用户消息和工具结果，不应提交到 Git。当前已启用
 `LANGGRAPH_STRICT_MSGPACK=true`。SQLite 适合本地开发，生产环境应改用
 PostgreSQL Checkpointer，并按用户/组织设计不可猜测的 `thread_id`。
+
+## v6.2 摘要记忆
+
+完整消息仍保存在 SQLite 中用于恢复和审计，但发送给模型的上下文会
+自动压缩为：
+
+```text
+系统规则 + 历史摘要 + 最近消息
+```
+
+默认在未摘要消息超过 20 条时触发摘要，并保留最近 8 条原始消息：
+
+```bash
+export SUMMARY_TRIGGER_MESSAGES="20"
+export SUMMARY_KEEP_RECENT="8"
+```
+
+触发阈值必须大于保留条数。为了快速观察摘要节点，可以临时设置：
+
+```bash
+export SUMMARY_TRIGGER_MESSAGES="6"
+export SUMMARY_KEEP_RECENT="3"
+```
+
+运行日志会出现：
+
+```text
+[graph:check_context] 未摘要消息=7, 触发阈值=6
+[graph:summarize] 已摘要4条，保留最近3条
+```
+
+LangGraph 状态新增：
+
+- `conversation_summary`：累计历史摘要
+- `summary_cursor`：已摘要到消息列表的哪个位置
+- `summary_count`：累计执行摘要的次数
+
+摘要会额外调用一次当前 LLM，因此不要设置过低阈值。精确 VIN 仍保存
+在结构化的 `current_vin` 中，不依赖自然语言摘要。
+
+## v6.3 本地知识库 RAG
+
+知识库采用不需要 Embedding 的本地方案：
+
+```text
+knowledge/*.md
+  -> 按 Markdown 标题分段
+  -> SQLite FTS5 trigram 索引
+  -> search_knowledge MCP Tool
+  -> LLM 根据片段回答并标注来源
+```
+
+手动建立或刷新索引：
+
+```bash
+python knowledge_base.py
+```
+
+通常不需要手动刷新；`search_knowledge` 会计算文档指纹，Markdown
+内容变化后自动重建索引。默认索引文件为：
+
+```text
+data/knowledge.sqlite
+```
+
+查看 MCP Tool 及一次真实知识检索：
+
+```bash
+python inspect_mcp.py
+```
+
+建议测试：
+
+```text
+VIN789为什么需要立即停运？请给出处置依据和来源。
+C级故障应走什么维修流程？
+紧急维修工单需要记录哪些字段？
+```
+
+检索结果包含 `source`、`section`、`content` 和 `rank`，模型被要求以
+`[文件名#章节]` 引用。当前文档全部是演示内容，不应作为真实维修依据。
 
 只查看 MCP Server 暴露的工具：
 

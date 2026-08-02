@@ -16,11 +16,15 @@ class DeepSeekProvider:
         )
 
     def generate(self, messages: list[dict], tools: list[dict]) -> dict:
+        request = {
+            "model": self.model,
+            "messages": messages,
+            "extra_body": {"thinking": {"type": "disabled"}},
+        }
+        if tools:
+            request["tools"] = tools
         response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=tools,
-            extra_body={"thinking": {"type": "disabled"}},
+            **request,
         )
         message = response.choices[0].message
         result = {"role": "assistant", "content": message.content}
