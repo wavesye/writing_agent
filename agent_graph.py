@@ -18,7 +18,6 @@ class AgentState(TypedDict):
     phase: str
     tool_trace: list[str]
     final_answer: str
-    current_vin: NotRequired[str | None]
     conversation_summary: NotRequired[str]
     summary_cursor: NotRequired[int]
     summary_count: NotRequired[int]
@@ -68,8 +67,8 @@ def build_agent_graph(
 
         previous = state.get("conversation_summary", "")
         summary_prompt = (
-            "请更新车辆 Agent 的历史摘要。只保留对后续任务有用的信息："
-            "用户目标、当前车辆、工具确认的事实、用户偏好、待处理动作。"
+            "请更新论文写作 Agent 的历史摘要。只保留对后续任务有用的信息："
+            "研究主题、目标期刊或读者、术语、文风偏好、已确认修改和待处理动作。"
             "区分已确认事实与模型建议，不要编造，不要输出开场白。\n\n"
             f"已有摘要：\n{previous or '无'}\n\n"
             "新增历史消息：\n"
@@ -100,15 +99,16 @@ def build_agent_graph(
     def model_node(state: AgentState) -> dict:
         print(f"[graph:model] 第 {state['tool_rounds'] + 1} 次决策")
         system_content = (
-            "你的用途就是帮助客户解决问题"
-            "对于解释、SQL 编写和编程问题，可以直接回答。"
-            "涉及车辆维修流程、处置依据、故障规范时，必须调用 "
-            "search_knowledge 检索知识库，并在答案中以"
-            "[文件名#章节]标注来源。不得编造知识库内容。"
+            "你是严谨的学术论文写作与润色助手。优先保持作者原意、论证逻辑、"
+            "专业术语、数字、公式和已有引文不变；不得补造事实、实验结果或参考文献。"
+            "当用户要求润色、仿写、改写文风或生成论文段落时，必须先调用 "
+            "search_style_corpus，以主题、章节功能和关键术语构造检索词。"
+            "学习检索片段的句长、衔接方式、语气、信息密度和段落结构，但不得复制"
+            "其独特表达或连续长句。若检索结果不足，应明确说明，不得假装参考过语料。"
+            "输出默认包括修改稿；必要时附关键修改说明。知识库只作为文风样本，"
+            "不是事实依据；仅在解释所参考的风格样本时使用[文件名#页码/章节]标注。"
+            "用户只要求校对时，做最小修改；用户未指定语言时沿用原文语言。"
         )
-        current_vin = state.get("current_vin")
-        if current_vin:
-            system_content += f"当前会话关注的车辆是 {current_vin}。"
         summary = state.get("conversation_summary")
         if summary:
             system_content += f"\n历史会话摘要：\n{summary}"
@@ -131,12 +131,9 @@ def build_agent_graph(
     async def mcp_tools_node(state: AgentState) -> dict:
         tool_messages = []
         trace = list(state.get("tool_trace", []))
-        current_vin = state.get("current_vin")
         for tool_call in state["messages"][-1].get("tool_calls", []):
             name = tool_call["function"]["name"]
             arguments = json.loads(tool_call["function"]["arguments"])
-            if arguments.get("vin"):
-                current_vin = arguments["vin"].upper()
             result = await mcp_session.call_tool(name, arguments)
             if result.isError:
                 raise RuntimeError(f"MCP Tool {name} 调用失败")
@@ -166,7 +163,6 @@ def build_agent_graph(
             "tool_rounds": state["tool_rounds"] + 1,
             "phase": "mcp_tools",
             "tool_trace": trace,
-            "current_vin": current_vin,
         }
 
     def limit_node(state: AgentState) -> dict:

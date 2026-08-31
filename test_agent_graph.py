@@ -5,11 +5,10 @@ import unittest
 from types import SimpleNamespace
 
 from agent_graph import build_agent_graph
-from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 
 class FakeToolCall:
-    def __init__(self, name="list_vehicles", arguments=None):
+    def __init__(self, name="search_style_corpus", arguments=None):
         self.name = name
         self.arguments = arguments or {}
 
@@ -27,7 +26,7 @@ class FakeToolCall:
 class FakeProvider:
     name = "fake"
 
-    def __init__(self, tool_name="list_vehicles", arguments=None):
+    def __init__(self, tool_name="search_style_corpus", arguments=None):
         self.calls = 0
         self.seen_messages = []
         self.tool_name = tool_name
@@ -47,14 +46,14 @@ class FakeProvider:
                     ).model_dump()
                 ],
             }
-        return {"role": "assistant", "content": "找到 VIN789。"}
+        return {"role": "assistant", "content": "这是润色后的段落。"}
 
 
 class FakeMcpSession:
     async def call_tool(self, name, arguments):
         return SimpleNamespace(
             isError=False,
-            structuredContent={"vins": ["VIN123", "VIN789"]},
+            structuredContent={"results": [{"source": "paper.pdf", "location": "p.2"}]},
             content=[],
         )
 
@@ -72,9 +71,9 @@ class SummaryProvider:
         if self.calls == 1:
             return {
                 "role": "assistant",
-                "content": "已确认：当前排查 VIN789。",
+                "content": "已确认：论文讨论纵向研究设计。",
             }
-        return {"role": "assistant", "content": "继续处理VIN789。"}
+        return {"role": "assistant", "content": "继续润色方法部分。"}
 
 
 class AgentGraphTest(unittest.IsolatedAsyncioTestCase):
@@ -101,7 +100,7 @@ class AgentGraphTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result["summary_cursor"], 3)
         self.assertEqual(result["summary_count"], 1)
-        self.assertIn("当前排查 VIN789", result["conversation_summary"])
+        self.assertIn("纵向研究设计", result["conversation_summary"])
         model_messages = provider.seen_messages[1]
         self.assertEqual(len(model_messages), 3)
         self.assertIn("历史会话摘要", model_messages[0]["content"])
@@ -116,56 +115,17 @@ class AgentGraphTest(unittest.IsolatedAsyncioTestCase):
         )
         result = await graph.ainvoke(
             {
-                "messages": [{"role": "user", "content": "找异常车辆"}],
+                "messages": [{"role": "user", "content": "润色这段引言"}],
                 "tool_rounds": 0,
                 "phase": "start",
                 "tool_trace": [],
                 "final_answer": "",
             }
         )
-        self.assertEqual(result["final_answer"], "找到 VIN789。")
+        self.assertEqual(result["final_answer"], "这是润色后的段落。")
         self.assertEqual(result["tool_rounds"], 1)
-        self.assertEqual(result["tool_trace"], ["list_vehicles"])
+        self.assertEqual(result["tool_trace"], ["search_style_corpus"])
         self.assertEqual(result["phase"], "model")
-
-    async def test_checkpoint_restores_current_vin_next_turn(self):
-        provider = FakeProvider("analyze_vin", {"vin": "VIN789"})
-        config = {"configurable": {"thread_id": "memory-test"}}
-        async with AsyncSqliteSaver.from_conn_string(
-            ":memory:"
-        ) as checkpointer:
-            graph = build_agent_graph(
-                provider,
-                FakeMcpSession(),
-                [],
-                checkpointer=checkpointer,
-            )
-            initial = {
-                "messages": [{"role": "user", "content": "分析VIN789"}],
-                "tool_rounds": 0,
-                "phase": "start",
-                "tool_trace": [],
-                "final_answer": "",
-            }
-            first = await graph.ainvoke(initial, config)
-            self.assertEqual(first["current_vin"], "VIN789")
-
-            second = await graph.ainvoke(
-                {
-                    "messages": [{"role": "user", "content": "它呢？"}],
-                    "tool_rounds": 0,
-                    "phase": "start",
-                    "tool_trace": [],
-                    "final_answer": "",
-                },
-                config,
-            )
-            self.assertEqual(second["current_vin"], "VIN789")
-            self.assertIn(
-                "当前会话关注的车辆是 VIN789",
-                provider.seen_messages[-1][0]["content"],
-            )
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -38,7 +38,7 @@ async def run_agent(user_input: str, thread_id: str | None = None) -> str:
     """在指定 thread_id 中恢复状态并执行一轮 Agent。"""
     active_thread = thread_id or os.getenv(
         "AGENT_THREAD_ID",
-        "vin-agent-cli",
+        "writing-agent-cli",
     )
     CHECKPOINT_DB.parent.mkdir(parents=True, exist_ok=True)
     server = StdioServerParameters(
@@ -87,7 +87,6 @@ async def run_agent(user_input: str, thread_id: str | None = None) -> str:
                 print(
                     f"[graph] 完成 phase={state['phase']}, "
                     f"tool_rounds={state['tool_rounds']}, "
-                    f"current_vin={state.get('current_vin')}, "
                     f"summaries={state.get('summary_count', 0)}, "
                     f"trace={state['tool_trace']}"
                 )

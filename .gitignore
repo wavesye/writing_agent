@@ -2,3 +2,6 @@
 __pycache__/
 .env
 data/*.sqlite*
+data/chroma/
+.DS_Store
+docs/

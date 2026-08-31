@@ -23,10 +23,10 @@ async def inspect() -> None:
                 print(json.dumps(tool.inputSchema, ensure_ascii=False, indent=2))
 
             demo = await session.call_tool(
-                "search_knowledge",
-                {"query": "动力电池高温如何处理", "top_k": 2},
+                "search_style_corpus",
+                {"query": "introduction research gap contribution", "top_k": 2},
             )
-            print("\n调用示例：search_knowledge")
+            print("\n调用示例：search_style_corpus")
             for item in demo.content:
                 if getattr(item, "type", None) == "text":
                     print(item.text)

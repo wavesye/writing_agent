@@ -1,17 +1,16 @@
-"""模型 Provider 工厂。"""
+"""Configurable provider factory for common cloud and local LLMs."""
 
 import os
 
-from .company import CompanyLLMProvider
-from .deepseek import DeepSeekProvider
+from .anthropic import AnthropicProvider
+from .gemini import GeminiProvider
+from .openai_compatible import OpenAICompatibleProvider
 
 
 def create_provider():
-    name = os.getenv("LLM_PROVIDER", "deepseek").lower()
-    if name == "deepseek":
-        return DeepSeekProvider()
-    if name == "company":
-        return CompanyLLMProvider()
-    raise ValueError(
-        f"不支持的 LLM_PROVIDER={name!r}，可选 deepseek 或 company"
-    )
+    provider = os.getenv("LLM_PROVIDER", "openai").strip().lower()
+    if provider in {"anthropic", "claude"}:
+        return AnthropicProvider()
+    if provider in {"google", "gemini"}:
+        return GeminiProvider()
+    return OpenAICompatibleProvider(provider)
