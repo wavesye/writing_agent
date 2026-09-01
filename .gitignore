@@ -3,5 +3,9 @@ __pycache__/
 .env
 data/*.sqlite*
 data/chroma/
+data/models/
+build/
+dist/
+*.ses
 .DS_Store
 docs/

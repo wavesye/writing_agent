@@ -10,6 +10,39 @@ from typing_extensions import NotRequired, TypedDict
 MAX_TOOL_ROUNDS = 5
 
 
+def valid_model_messages(messages: list[dict]) -> list[dict]:
+    """Drop interrupted tool-call turns that APIs reject after checkpoint restore."""
+    valid = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if message.get("role") == "tool":
+            index += 1
+            continue
+        calls = message.get("tool_calls") if message.get("role") == "assistant" else None
+        if not calls:
+            valid.append(message)
+            index += 1
+            continue
+        expected = {call["id"] for call in calls}
+        tool_messages = []
+        cursor = index + 1
+        while cursor < len(messages) and messages[cursor].get("role") == "tool":
+            tool_messages.append(messages[cursor])
+            cursor += 1
+        received = {item.get("tool_call_id") for item in tool_messages}
+        if expected.issubset(received):
+            valid.append(message)
+            valid.extend(tool_messages)
+        else:
+            print(
+                "[graph:recovery] 已忽略中断留下的悬空工具调用："
+                f"{sorted(expected - received)}"
+            )
+        index = cursor
+    return valid
+
+
 class AgentState(TypedDict):
     """图中每个节点共享和更新的状态。"""
 
@@ -112,9 +145,9 @@ def build_agent_graph(
         summary = state.get("conversation_summary")
         if summary:
             system_content += f"\n历史会话摘要：\n{summary}"
-        recent_messages = state["messages"][
-            state.get("summary_cursor", 0):
-        ]
+        recent_messages = valid_model_messages(
+            state["messages"][state.get("summary_cursor", 0):]
+        )
         message = provider.generate(
             [
                 {"role": "system", "content": system_content},
@@ -136,7 +169,14 @@ def build_agent_graph(
             arguments = json.loads(tool_call["function"]["arguments"])
             result = await mcp_session.call_tool(name, arguments)
             if result.isError:
-                raise RuntimeError(f"MCP Tool {name} 调用失败")
+                details = "\n".join(
+                    item.text for item in result.content
+                    if getattr(item, "type", None) == "text"
+                )
+                raise RuntimeError(
+                    f"MCP Tool {name}({arguments}) 调用失败"
+                    + (f"：{details}" if details else "")
+                )
 
             if result.structuredContent is not None:
                 output = json.dumps(

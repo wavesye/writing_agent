@@ -4,7 +4,7 @@ import json
 import unittest
 from types import SimpleNamespace
 
-from agent_graph import build_agent_graph
+from agent_graph import build_agent_graph, valid_model_messages
 
 
 class FakeToolCall:
@@ -77,6 +77,25 @@ class SummaryProvider:
 
 
 class AgentGraphTest(unittest.IsolatedAsyncioTestCase):
+    def test_interrupted_tool_call_is_removed_from_restored_history(self):
+        messages = [
+            {"role": "user", "content": "列出论文"},
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "dangling", "function": {"name": "list_corpus_sources",
+                "arguments": "{}"}}]},
+            {"role": "user", "content": "再试一次"},
+        ]
+        self.assertEqual(valid_model_messages(messages), [messages[0], messages[2]])
+
+    def test_completed_tool_call_is_preserved(self):
+        messages = [
+            {"role": "assistant", "content": None, "tool_calls": [{
+                "id": "complete", "function": {"name": "list_corpus_sources",
+                "arguments": "{}"}}]},
+            {"role": "tool", "tool_call_id": "complete", "content": "{}"},
+        ]
+        self.assertEqual(valid_model_messages(messages), messages)
+
     async def test_summary_compacts_model_context(self):
         provider = SummaryProvider()
         graph = build_agent_graph(

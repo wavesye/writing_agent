@@ -1,15 +1,18 @@
 """Academic corpus ingestion with persistent vector + FTS5 hybrid retrieval."""
 
 import hashlib
+import logging
 import os
 import re
 import sqlite3
 from pathlib import Path
 
-BASE_DIR = Path(__file__).parent
-DEFAULT_KNOWLEDGE_DIR = BASE_DIR / "knowledge"
-DEFAULT_DB_PATH = BASE_DIR / "data" / "knowledge.sqlite"
+from app_paths import DATA_DIR, KNOWLEDGE_DIR
+
+DEFAULT_KNOWLEDGE_DIR = KNOWLEDGE_DIR
+DEFAULT_DB_PATH = DATA_DIR / "knowledge.sqlite"
 SUPPORTED_SUFFIXES = {".pdf", ".md", ".txt"}
+logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 
 class KnowledgeBase:
@@ -73,9 +76,17 @@ class KnowledgeBase:
                 raise RuntimeError(
                     "读取 PDF 需要 pypdf；请先运行 pip install -r requirements.txt"
                 ) from error
-            reader = PdfReader(str(path))
+            reader = PdfReader(str(path), strict=False)
             for page_number, page in enumerate(reader.pages, 1):
-                for index, content in enumerate(self._split(page.extract_text() or ""), 1):
+                try:
+                    page_text = page.extract_text() or ""
+                except Exception as error:
+                    logging.getLogger(__name__).warning(
+                        "跳过无法提取的 PDF 页面 %s p.%s：%s",
+                        source, page_number, error,
+                    )
+                    continue
+                for index, content in enumerate(self._split(page_text), 1):
                     records.append({"source": source, "location": f"p.{page_number}",
                                     "chunk_no": index, "content": content})
             return records
@@ -99,7 +110,7 @@ class KnowledgeBase:
         flush()
         return records
 
-    def ensure_index(self) -> int:
+    def ensure_index(self, include_vector: bool = True) -> int:
         files = self._files()
         if not files:
             raise RuntimeError(
@@ -135,7 +146,7 @@ class KnowledgeBase:
             ).fetchall()
         chunks = [{"source": source, "location": location, "chunk_no": chunk_no,
                    "content": content} for source, location, chunk_no, content in rows]
-        if self.rag_mode != "keyword":
+        if include_vector and self.rag_mode != "keyword":
             if self.embedder is None:
                 from embeddings import EmbeddingProvider
                 self.embedder = EmbeddingProvider()
@@ -203,7 +214,7 @@ class KnowledgeBase:
                 "retrieval_mode": self.rag_mode, "results": results}
 
     def list_sources(self) -> dict:
-        count = self.ensure_index()
+        count = self.ensure_index(include_vector=False)
         with sqlite3.connect(self.db_path) as conn:
             rows = conn.execute(
                 "SELECT source, COUNT(*) FROM knowledge_chunks GROUP BY source ORDER BY source"

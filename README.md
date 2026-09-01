@@ -31,13 +31,13 @@ knowledge/
 默认 `RAG_MODE=hybrid`：Chroma 语义检索和 SQLite FTS5 关键词检索分别召回候选片段，
 再用融合排序返回结果。也可设置为 `vector` 或 `keyword`。
 
-推荐在个人电脑上使用 Ollama 生成本地向量：
+默认使用 Python 进程内的 ONNX `all-MiniLM-L6-v2` 生成向量，不需要 Ollama、
+独立模型服务或 embedding API。第一次使用时会自动下载模型，之后完全从本地加载：
 
 ```bash
-ollama pull embeddinggemma
-export EMBEDDING_PROVIDER="ollama"
-export OLLAMA_EMBEDDING_MODEL="embeddinggemma"
+export EMBEDDING_PROVIDER="local"
 export RAG_MODE="hybrid"
+python prepare_local_model.py
 ```
 
 也可以使用 OpenAI 或其他兼容的 embedding API：
@@ -49,7 +49,7 @@ export EMBEDDING_API_KEY="你的 API Key"
 export EMBEDDING_MODEL="你账号中可用的 embedding 模型"
 ```
 
-聊天模型与 embedding 模型完全独立，例如可以用 Claude 写作、Ollama 在本地生成向量。
+聊天模型与 embedding 模型完全独立，例如可以用 Claude 写作、Python 在本地生成向量。
 如果临时不想使用向量库，可设置 `RAG_MODE=keyword`。
 
 ## 安装与运行
@@ -63,8 +63,11 @@ pip install -r requirements.txt
 export LLM_PROVIDER="openai"
 export OPENAI_API_KEY="你的 API Key"
 export OPENAI_MODEL="你账号中可用且支持工具调用的模型"
-python main.py
+python app.py
 ```
+
+桌面界面支持聊天模型配置、论文导入、构建知识库、来源查看和论文写作对话；API Key
+只保存在当前进程内，不写入设置文件。CLI 调试入口仍为 `python main.py`。
 
 可提前验证知识库：
 
@@ -130,14 +133,38 @@ export SUMMARY_KEEP_RECENT="8"
 
 相同 `AGENT_THREAD_ID` 会恢复论文主题、术语和修改偏好。
 
+## 打包 macOS App / DMG
+
+先把本地 embedding 模型下载到项目数据目录，再打包：
+
+```bash
+source .venv/bin/activate
+python prepare_local_model.py
+pip install -r requirements-build.txt
+pyinstaller --clean --noconfirm WritingAgent.spec
+```
+
+产物位于 `dist/Academic Writing Agent.app`。可用 macOS 自带工具制作 DMG：
+
+```bash
+hdiutil create -volname "Academic Writing Agent" \
+  -srcfolder "dist/Academic Writing Agent.app" \
+  -ov -format UDZO "dist/Academic-Writing-Agent.dmg"
+```
+
+打包时，已下载的 ONNX 模型会包含进 `.app`。打包版的论文、索引、会话和非敏感设置
+保存在 `~/Library/Application Support/Writing Agent/`，不会写入只读的应用包。
+
 ## 核心文件
 
 - `agent_graph.py`：论文写作规则、对话摘要和工具调用流程。
 - `knowledge_base.py`：PDF/Markdown/TXT 提取、分段和混合检索。
-- `embeddings.py`：Ollama 与 OpenAI-compatible embedding 配置。
+- `embeddings.py`：进程内 ONNX 与 OpenAI-compatible embedding 配置。
 - `vector_store.py`：Chroma 持久化向量库。
 - `mcp_server.py`：暴露 `search_style_corpus` 与 `list_corpus_sources`。
 - `llm.py`：模型、MCP 与持久化记忆的连接层。
 - `main.py`：命令行入口。
+- `app.py`：桌面可视化界面与打包入口。
+- `WritingAgent.spec`：PyInstaller macOS 应用打包配置。
 
 当前使用 Chroma + SQLite FTS5，适合本地和中小型论文语料库。

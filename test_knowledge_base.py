@@ -51,6 +51,21 @@ class KnowledgeBaseTest(unittest.TestCase):
             self.assertEqual(kb.ensure_index(), 2)
             self.assertEqual(len(kb.list_sources()["sources"]), 1)
 
+    def test_listing_sources_does_not_initialize_vector_store(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            corpus = root / "knowledge"
+            corpus.mkdir()
+            (corpus / "paper.txt").write_text("Academic prose.", encoding="utf-8")
+
+            class FailingVectorStore:
+                def ensure_index(self, *_args):
+                    raise AssertionError("list_sources 不应初始化向量库")
+
+            kb = KnowledgeBase(corpus, root / "knowledge.sqlite", rag_mode="hybrid",
+                               embedder=FakeEmbedder(), vector_store=FailingVectorStore())
+            self.assertEqual(kb.list_sources()["sources"][0]["source"], "paper.txt")
+
     def test_empty_corpus_has_actionable_error(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
