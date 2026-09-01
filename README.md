@@ -66,8 +66,9 @@ export OPENAI_MODEL="你账号中可用且支持工具调用的模型"
 python app.py
 ```
 
-桌面界面支持聊天模型配置、论文导入、构建知识库、来源查看和论文写作对话；API Key
-只保存在当前进程内，不写入设置文件。CLI 调试入口仍为 `python main.py`。
+桌面界面采用本地 Web 技术构建，包含 ChatGPT 风格对话、会话列表、Markdown 渲染、
+深浅主题、论文拖拽导入、知识库管理和模型设置；API Key 只保存在当前进程内，
+不写入设置文件。CLI 调试入口仍为 `python main.py`。
 
 可提前验证知识库：
 
@@ -164,7 +165,9 @@ hdiutil create -volname "Academic Writing Agent" \
 - `mcp_server.py`：暴露 `search_style_corpus` 与 `list_corpus_sources`。
 - `llm.py`：模型、MCP 与持久化记忆的连接层。
 - `main.py`：命令行入口。
-- `app.py`：桌面可视化界面与打包入口。
+- `app.py`：本地服务与 pywebview 桌面窗口启动器。
+- `web_app.py`：桌面界面的本地 FastAPI API。
+- `web/`：ChatGPT 风格的离线 Web 界面。
 - `WritingAgent.spec`：PyInstaller macOS 应用打包配置。
 
 当前使用 Chroma + SQLite FTS5，适合本地和中小型论文语料库。

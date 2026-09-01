@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light dark" />
+  <title>Academic Writing Agent</title>
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark">A</div>
+        <div><strong>Academic</strong><span>Writing Agent</span></div>
+        <button class="icon-button mobile-only" id="closeSidebar" aria-label="关闭侧栏">×</button>
+      </div>
+      <button class="new-chat" id="newChat"><span>＋</span> 新建对话</button>
+      <div class="sidebar-label">最近对话</div>
+      <nav class="conversation-list" id="conversationList"></nav>
+      <div class="sidebar-spacer"></div>
+      <button class="sidebar-action" id="openLibrary"><span>▤</span><span>论文知识库</span><b id="sourceCount">0</b></button>
+      <button class="sidebar-action" id="openSettings"><span>⌘</span><span>模型设置</span></button>
+      <div class="sidebar-footer"><i class="status-dot"></i><span>本地运行 · 数据不离开电脑</span></div>
+    </aside>
+
+    <main class="main-panel">
+      <header class="topbar">
+        <button class="icon-button mobile-only" id="openSidebar" aria-label="打开侧栏">☰</button>
+        <button class="model-pill" id="modelPill"><span id="activeModel">尚未配置模型</span><span>⌄</span></button>
+        <div class="topbar-actions">
+          <button class="icon-button" id="themeToggle" aria-label="切换主题">☼</button>
+          <button class="icon-button" id="shareButton" aria-label="复制对话">↗</button>
+        </div>
+      </header>
+
+      <section class="chat-scroll" id="chatScroll">
+        <div class="welcome" id="welcome">
+          <div class="welcome-mark">A</div>
+          <h1>一起打磨你的论文</h1>
+          <p>基于本地论文知识库，优化表达、论证结构与学术文风。</p>
+          <div class="suggestion-grid">
+            <button class="suggestion" data-prompt="请参考知识库中的论文风格，润色下面这段引言，并保持事实、数字和引文不变：\n\n">
+              <span class="suggestion-icon lilac">✦</span><strong>润色论文段落</strong><small>改善语言、衔接和学术表达</small>
+            </button>
+            <button class="suggestion" data-prompt="请分析下面这段论证的逻辑结构，指出跳跃或证据不足之处，并给出修改稿：\n\n">
+              <span class="suggestion-icon blue">⌁</span><strong>检查论证逻辑</strong><small>发现断裂、重复与论据缺口</small>
+            </button>
+            <button class="suggestion" data-prompt="请基于知识库中相似论文的写法，为下面的研究内容起草一个严谨的章节：\n\n">
+              <span class="suggestion-icon green">▧</span><strong>起草论文章节</strong><small>模仿结构特征而不复制原句</small>
+            </button>
+            <button class="suggestion" id="welcomeLibrary">
+              <span class="suggestion-icon amber">▤</span><strong>管理参考论文</strong><small>导入 PDF 并更新向量索引</small>
+            </button>
+          </div>
+        </div>
+        <div class="messages" id="messages"></div>
+      </section>
+
+      <section class="composer-wrap">
+        <div class="drop-hint" id="dropHint">松开即可导入论文</div>
+        <div class="composer">
+          <textarea id="prompt" rows="1" placeholder="输入论文内容或写作要求…"></textarea>
+          <div class="composer-tools">
+            <button class="attach-button" id="attachButton" aria-label="导入论文">＋</button>
+            <span class="composer-note">Enter 发送 · Shift+Enter 换行</span>
+            <button class="send-button" id="sendButton" aria-label="发送">↑</button>
+          </div>
+        </div>
+        <p class="disclaimer">AI 可能会出错，请核对事实、数据与引文。</p>
+      </section>
+    </main>
+  </div>
+
+  <div class="overlay" id="overlay"></div>
+  <aside class="drawer" id="settingsDrawer" aria-hidden="true">
+    <div class="drawer-header"><div><span class="eyebrow">PREFERENCES</span><h2>模型设置</h2></div><button class="icon-button close-drawer">×</button></div>
+    <p class="drawer-intro">配置用于论文写作的聊天模型。API Key 仅保留在当前运行进程。</p>
+    <label>服务商<select id="provider"><option>openai</option><option>deepseek</option><option>openrouter</option><option>ollama</option><option>qwen</option><option>moonshot</option><option>zhipu</option><option>siliconflow</option><option>anthropic</option><option>gemini</option><option>custom</option></select></label>
+    <label>模型 ID<input id="model" placeholder="例如：支持工具调用的模型" /></label>
+    <label>Base URL <em>可选</em><input id="baseUrl" placeholder="使用默认地址" /></label>
+    <label>API Key <em>不写入磁盘</em><div class="password-wrap"><input id="apiKey" type="password" placeholder="sk-…" /><button id="toggleKey">显示</button></div></label>
+    <div class="info-card"><span>●</span><p><strong>Embedding 在本地运行</strong>论文向量由 Python 内置 ONNX 模型生成，不会发送给聊天模型服务商。</p></div>
+    <button class="primary-button" id="saveSettings">保存并应用</button>
+  </aside>
+
+  <aside class="drawer wide" id="libraryDrawer" aria-hidden="true">
+    <div class="drawer-header"><div><span class="eyebrow">LOCAL RAG</span><h2>论文知识库</h2></div><button class="icon-button close-drawer">×</button></div>
+    <p class="drawer-intro">导入风格相近的论文。PDF、Markdown 和 TXT 均会保存在本机。</p>
+    <button class="upload-zone" id="uploadZone"><span>⇧</span><strong>点击选择或拖入论文</strong><small>PDF · Markdown · TXT</small></button>
+    <div class="library-toolbar"><div><strong id="librarySummary">0 篇论文</strong><small id="chunkSummary">0 个知识片段</small></div><button class="secondary-button" id="buildIndex">更新索引</button></div>
+    <div class="source-list" id="sourceList"></div>
+  </aside>
+
+  <input type="file" id="fileInput" accept=".pdf,.md,.txt" multiple hidden />
+  <div class="toast-stack" id="toasts"></div>
+  <script src="/assets/app.js"></script>
+</body>
+</html>

@@ -9,3 +9,5 @@ requests>=2.32.0
 pypdf>=5.0,<7
 chromadb>=1.0,<2
 prompt-toolkit>=3.0,<4
+python-multipart>=0.0.20,<1
+pywebview>=5.4,<7

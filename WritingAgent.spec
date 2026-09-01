@@ -11,6 +11,14 @@ for package in ("onnxruntime", "tokenizers", "mcp", "langgraph"):
     binaries += package_binaries
     hiddenimports += package_hidden
 
+for package in ("webview", "objc", "Cocoa", "WebKit"):
+    package_datas, package_binaries, package_hidden = collect_all(package)
+    datas += package_datas
+    binaries += package_binaries
+    hiddenimports += package_hidden
+
+datas.append((str(project / "web"), "web"))
+
 model_dir = project / "data" / "models" / "all-MiniLM-L6-v2"
 if model_dir.exists():
     datas.append((str(model_dir), "models/all-MiniLM-L6-v2"))

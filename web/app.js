@@ -1,0 +1,57 @@
+const $ = (id) => document.getElementById(id);
+const state = { token: "", settings: {}, activeId: "", conversations: [], busy: false, sources: [] };
+const providers = { openai: "OpenAI", deepseek: "DeepSeek", openrouter: "OpenRouter", ollama: "Ollama", qwen: "通义千问", moonshot: "Kimi", zhipu: "智谱", siliconflow: "硅基流动", anthropic: "Claude", gemini: "Gemini", custom: "Custom" };
+
+function uid(){ return `chat-${Date.now()}-${Math.random().toString(36).slice(2,8)}`; }
+function current(){ return state.conversations.find(c => c.id === state.activeId); }
+function save(){ localStorage.setItem("awa-conversations", JSON.stringify(state.conversations)); localStorage.setItem("awa-active", state.activeId); }
+function load(){ try{ state.conversations=JSON.parse(localStorage.getItem("awa-conversations"))||[]; }catch{state.conversations=[]} state.activeId=localStorage.getItem("awa-active")||state.conversations[0]?.id||""; }
+function newChat(){ const item={id:uid(),title:"新对话",messages:[],created:Date.now()}; state.conversations.unshift(item); state.activeId=item.id; save(); renderConversations(); renderMessages(); $("prompt").focus(); }
+function escapeHtml(value=""){ const div=document.createElement("div"); div.textContent=value; return div.innerHTML; }
+function markdown(value=""){
+  let text=escapeHtml(value);
+  const blocks=[];
+  text=text.replace(/```([\s\S]*?)```/g,(_,code)=>{blocks.push(`<pre><code>${code.trim()}</code></pre>`);return `@@BLOCK${blocks.length-1}@@`;});
+  text=text.replace(/`([^`]+)`/g,"<code>$1</code>").replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>");
+  const lines=text.split("\n"); let html="",inList=false;
+  for(const line of lines){ if(/^[-*] /.test(line)){if(!inList){html+="<ul>";inList=true}html+=`<li>${line.slice(2)}</li>`;continue} if(inList){html+="</ul>";inList=false} if(/^&gt; /.test(line))html+=`<blockquote>${line.slice(5)}</blockquote>`;else if(line.trim())html+=`<p>${line}</p>`; }
+  if(inList)html+="</ul>";
+  return html.replace(/@@BLOCK(\d+)@@/g,(_,i)=>blocks[Number(i)]);
+}
+function renderConversations(){ const list=$("conversationList"); list.innerHTML=""; for(const chat of state.conversations){ const button=document.createElement("button"); button.className=`conversation-item ${chat.id===state.activeId?"active":""}`; button.innerHTML=`<i></i><span>${escapeHtml(chat.title)}</span>`; button.onclick=()=>{state.activeId=chat.id;save();renderConversations();renderMessages();closeDrawers()}; list.append(button); } }
+function renderMessages(){ const chat=current(); const has=chat?.messages.length; $("welcome").hidden=Boolean(has); const root=$("messages"); root.innerHTML=""; for(const msg of chat?.messages||[])root.append(messageNode(msg)); requestAnimationFrame(()=>{$("chatScroll").scrollTop=$("chatScroll").scrollHeight}); }
+function messageNode(msg){ const el=document.createElement("article"); el.className=`message ${msg.role}`; const who=msg.role==="user"?"你":"A"; const label=msg.role==="user"?"你":"Academic Agent"; el.innerHTML=`<div class="message-avatar">${who}</div><div class="message-body"><div class="message-label">${label}</div><div class="message-content">${markdown(msg.content)}</div></div>`; return el; }
+function thinkingNode(){ const el=document.createElement("article"); el.className="message assistant"; el.id="thinking"; el.innerHTML='<div class="message-avatar">A</div><div class="message-body"><div class="message-label">Academic Agent</div><div class="thinking"><span id="thinkingText">正在思考</span><i></i><i></i><i></i></div></div>'; return el; }
+function toast(message,type=""){ const el=document.createElement("div"); el.className=`toast ${type}`; el.textContent=message; $("toasts").append(el); setTimeout(()=>el.remove(),3500); }
+async function api(path, options={}){ options.headers={...(options.headers||{}),"X-App-Token":state.token}; const response=await fetch(path,options); if(!response.ok){let detail=`请求失败 (${response.status})`;try{detail=(await response.json()).detail||detail}catch{}throw new Error(detail)} return response; }
+
+async function bootstrap(){ load(); if(!state.conversations.length)newChat(); const data=await fetch("/api/bootstrap").then(r=>r.json()); state.token=data.token; state.settings=data.settings; $("provider").value=data.settings.provider||"openai"; $("model").value=data.settings.model||""; $("baseUrl").value=data.settings.base_url||""; updateModelPill(); renderConversations();renderMessages();await refreshSources(); }
+function updateModelPill(){ const provider=providers[$("provider").value]||$("provider").value; const model=$("model").value.trim(); $("activeModel").textContent=model?`${provider} · ${model}`:`${provider} · 尚未配置模型`; }
+async function saveSettings(){ const body={provider:$("provider").value,model:$("model").value.trim(),base_url:$("baseUrl").value.trim(),api_key:$("apiKey").value.trim()}; if(!body.model){toast("请填写模型 ID","error");return} await api("/api/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});state.settings=body;updateModelPill();closeDrawers();toast("模型设置已保存"); }
+
+async function send(){ if(state.busy)return; const input=$("prompt"); const value=input.value.trim(); if(!value)return; if(!$("model").value.trim()){openDrawer("settingsDrawer");toast("请先配置聊天模型","error");return} let chat=current(); if(!chat){newChat();chat=current()} if(chat.messages.length===0)chat.title=value.replace(/\s+/g," ").slice(0,28); chat.messages.push({role:"user",content:value});save();renderConversations();renderMessages(); input.value="";resizePrompt(); state.busy=true;$("sendButton").disabled=true;$("messages").append(thinkingNode());$("chatScroll").scrollTop=$("chatScroll").scrollHeight;
+  try{ const response=await api("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:value,thread_id:chat.id})}); await consumeEvents(response,chat); }
+  catch(error){chat.messages.push({role:"assistant",content:`请求失败：${error.message}`});toast(error.message,"error")}
+  finally{state.busy=false;$("sendButton").disabled=false;$("thinking")?.remove();save();renderMessages();}
+}
+async function consumeEvents(response,chat){ const reader=response.body.getReader(),decoder=new TextDecoder();let buffer="",eventName="message"; while(true){const {value,done}=await reader.read();if(done)break;buffer+=decoder.decode(value,{stream:true});const chunks=buffer.split("\n\n");buffer=chunks.pop();for(const chunk of chunks){eventName="message";let data={};for(const line of chunk.split("\n")){if(line.startsWith("event:"))eventName=line.slice(6).trim();if(line.startsWith("data:"))data=JSON.parse(line.slice(5))}if(eventName==="status")$("thinkingText").textContent=data.message;if(eventName==="message")chat.messages.push({role:"assistant",content:data.content});if(eventName==="error")throw new Error(data.message);}} }
+
+async function refreshSources(){ const data=await fetch("/api/sources").then(r=>r.json());state.sources=data.sources||[];$("sourceCount").textContent=state.sources.length;$("librarySummary").textContent=`${state.sources.length} 篇论文`;$("chunkSummary").textContent=`${data.indexed_chunks||0} 个知识片段`;const root=$("sourceList");root.innerHTML="";for(const source of state.sources){const card=document.createElement("div");card.className="source-card";const name=source.source.split("/").pop();card.innerHTML=`<div class="source-type">${name.toLowerCase().endsWith(".pdf")?"PDF":"DOC"}</div><div><strong title="${escapeHtml(source.source)}">${escapeHtml(name)}</strong><small>${source.chunks} 个片段</small></div><button class="delete-source" title="移除">×</button>`;card.querySelector("button").onclick=()=>removeSource(source.source);root.append(card)}}
+async function upload(files){ const accepted=[...files].filter(f=>/\.(pdf|md|txt)$/i.test(f.name));if(!accepted.length){toast("请选择 PDF、Markdown 或 TXT","error");return}const form=new FormData();accepted.forEach(f=>form.append("files",f));toast(`正在导入 ${accepted.length} 个文件…`);try{const response=await api("/api/sources",{method:"POST",body:form});const data=await response.json();await refreshSources();toast(`已导入 ${data.imported.length} 个文件`);openDrawer("libraryDrawer")}catch(error){toast(error.message,"error")}}
+async function buildIndex(){const button=$("buildIndex");button.disabled=true;button.textContent="索引中…";try{const response=await api("/api/index",{method:"POST"});const data=await response.json();await refreshSources();toast(`索引完成：${data.indexed_chunks} 个片段`)}catch(error){toast(error.message,"error")}finally{button.disabled=false;button.textContent="更新索引"}}
+async function removeSource(path){if(!confirm("确定从知识库移除这篇论文吗？原文件将被删除。"))return;try{await api(`/api/sources/${encodeURIComponent(path).replaceAll("%2F","/")}`,{method:"DELETE"});await refreshSources();toast("论文已移除")}catch(error){toast(error.message,"error")}}
+
+function openDrawer(id){closeDrawers();$(id).classList.add("open");$(id).setAttribute("aria-hidden","false");$("overlay").classList.add("show")}
+function closeDrawers(){document.querySelectorAll(".drawer").forEach(d=>{d.classList.remove("open");d.setAttribute("aria-hidden","true")});$("overlay").classList.remove("show");$("sidebar").classList.remove("open")}
+function resizePrompt(){const el=$("prompt");el.style.height="auto";el.style.height=`${Math.min(el.scrollHeight,190)}px`}
+function setTheme(theme){document.documentElement.dataset.theme=theme;localStorage.setItem("awa-theme",theme);$("themeToggle").textContent=theme==="dark"?"☾":"☼"}
+
+$("newChat").onclick=newChat;$("sendButton").onclick=send;$("prompt").oninput=resizePrompt;$("prompt").onkeydown=e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send()}};
+document.querySelectorAll(".suggestion[data-prompt]").forEach(b=>b.onclick=()=>{$("prompt").value=b.dataset.prompt;resizePrompt();$("prompt").focus()});
+$("welcomeLibrary").onclick=()=>openDrawer("libraryDrawer");$("openLibrary").onclick=()=>openDrawer("libraryDrawer");$("openSettings").onclick=()=>openDrawer("settingsDrawer");$("modelPill").onclick=()=>openDrawer("settingsDrawer");$("overlay").onclick=closeDrawers;document.querySelectorAll(".close-drawer").forEach(b=>b.onclick=closeDrawers);
+$("saveSettings").onclick=saveSettings;$("provider").onchange=updateModelPill;$("model").oninput=updateModelPill;$("toggleKey").onclick=()=>{const key=$("apiKey");key.type=key.type==="password"?"text":"password";$("toggleKey").textContent=key.type==="password"?"显示":"隐藏"};
+$("attachButton").onclick=()=>$("fileInput").click();$("uploadZone").onclick=()=>$("fileInput").click();$("fileInput").onchange=e=>upload(e.target.files);$("buildIndex").onclick=buildIndex;
+$("themeToggle").onclick=()=>setTheme(document.documentElement.dataset.theme==="dark"?"light":"dark");$("shareButton").onclick=async()=>{const chat=current();const text=(chat?.messages||[]).map(m=>`${m.role==="user"?"你":"Agent"}: ${m.content}`).join("\n\n");await navigator.clipboard.writeText(text);toast("对话已复制")};
+$("openSidebar").onclick=()=>$("sidebar").classList.add("open");$("closeSidebar").onclick=closeDrawers;
+for(const event of ["dragenter","dragover"]){document.addEventListener(event,e=>{e.preventDefault();document.body.classList.add("dragging")})}for(const event of ["dragleave","drop"]){document.addEventListener(event,e=>{e.preventDefault();document.body.classList.remove("dragging")})}document.addEventListener("drop",e=>upload(e.dataTransfer.files));
+setTheme(localStorage.getItem("awa-theme")||"light");bootstrap().catch(error=>toast(error.message,"error"));
